@@ -5,6 +5,7 @@ bad userland LD_PRELOAD rootkit
 ## Features 
 * important strings are xor'ed out 
 * hiding through magic GID / env var 
+* memory cleaning 
 * totally awful
 
 ```
