@@ -4,7 +4,7 @@ bad userland LD_PRELOAD rootkit
 
 ## Features 
 * important strings are xor'ed out 
-* hiding through magic GID / env var 
+* hiding through magic GID
 * memory cleaning
 * is not detected by rkhunter  
 * totally awful
@@ -42,6 +42,8 @@ rkorova is not actually meant to be deployed in a real engagement and is pretty 
 * DEFAULT_PORT = 61040
 * IP = 127.0.0.1
 * XOR key = 0x2A  
+
+Use xor.py to set values.
 
 ## References 
 
