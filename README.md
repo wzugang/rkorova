@@ -23,13 +23,13 @@ bad userland LD_PRELOAD rootkit
 * step 3: create magic user 
 * step 4: replace ld_preload with librkorova.so
 * step 5: set your magic env var in ~/.bash_profile or whatever 
-* step 6: hide any other files not owned by you with chgrp (magic gid) (file) 
+* step 6: hide all files/procs with magic GID 
 
-rkorova will (ideally) hide any files that are under the magic GID and/or the hidden user. in fact, you don't even need a user as long as you hide all files under the GID
+rkorova will (ideally) hide any files that are under the magic GID. It will also hide anythingthat contains the magic string in its path. However, this is inconsistently implemented (because I wrote this as an amateur when I was 16) and will occasionally break things. For example, you will not be able to open rk.c when rkorova is loaded, probably because the source file contains the magic string somewhere. I am currently in the process of cleaning up my code, implementing a proper backdoor and fixing my bugs.  
 
 ## Known Issues 
 rkorova is not actually meant to be deployed in a real engagement and is pretty awful at hiding in that regard. I am not responsible for any illegal / stupid things that happen because you decided to act el8 in front of your friends on IRC 
-* If a file is hidden, it will appear in bash autocomplete but cannot be interacted with.
+* If a file is hidden, it will appear in bash autocomplete but cannot be interacted with. I suggest you prefix all files/dirs you intend to hide with .
 * ~rkorova sometimes completely breaks when git is involved~
 * ~breaks vim (will fix soon)~
 
@@ -42,7 +42,6 @@ rkorova is not actually meant to be deployed in a real engagement and is pretty 
 * DEFAULT_PORT = 61040
 * IP = 127.0.0.1
 * XOR key = 0x2A  
-
 
 ## References 
 
