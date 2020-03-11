@@ -30,8 +30,8 @@ rkorova will (ideally) hide any files that are under the magic GID and/or the hi
 ## Known Issues 
 rkorova is not actually meant to be deployed in a real engagement and is pretty awful at hiding in that regard. I am not responsible for any illegal / stupid things that happen because you decided to act el8 in front of your friends on IRC 
 * If a file is hidden, it will appear in bash autocomplete but cannot be interacted with.
-* rkorova sometimes completely breaks when git is involved
-* breaks vim (will fix soon)  
+* ~rkorova sometimes completely breaks when git is involved~
+* ~breaks vim (will fix soon)~
 
 ## Default values: 
 * MAGIC = "mochi"

